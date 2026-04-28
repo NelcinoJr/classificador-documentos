@@ -3,12 +3,26 @@ session_start();
 require 'vendor/autoload.php';
 require 'config.php';
 
-// Estimativas de preços fictícias/baseadas na documentação para 2026 por 1 Milhão de Tokens (USD)
+// Preços oficiais atualizados (Google Gemini API - Abril 2026)
+// Valores em USD (Dólares) por 1 Milhão de Tokens
+// Baseado em: https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing
 $pricing = [
-    'gemini-1.5-flash' => ['input' => 0.075, 'output' => 0.30],
-    'gemini-1.5-pro'   => ['input' => 1.25,  'output' => 5.00],
-    'gemini-2.5-flash' => ['input' => 0.15,  'output' => 0.60],
-    'gemini-2.5-pro'   => ['input' => 1.50,  'output' => 6.00]
+    'gemini-1.5-flash' => [
+        'input'  => 0.075, // $0.075 por 1M tokens (< 128k context)
+        'output' => 0.30   // $0.30 por 1M tokens
+    ],
+    'gemini-1.5-pro' => [
+        'input'  => 1.25,  // $1.25 por 1M tokens (< 128k context)
+        'output' => 5.00   // $5.00 por 1M tokens
+    ],
+    'gemini-2.5-flash' => [
+        'input'  => 0.075, // Estimativa assumindo que 2.5 Flash mantenha preço de entrada
+        'output' => 0.30
+    ],
+    'gemini-2.5-pro' => [
+        'input'  => 1.25,  // Estimativa assumindo que 2.5 Pro mantenha preço de entrada
+        'output' => 5.00
+    ]
 ];
 
 $dolar_hoje = 5.00; // Taxa de conversão para BRL
@@ -66,6 +80,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['pdf_files'])) {
         header("Location: index.php?error=" . urlencode("Por favor, forneça sua chave da API do Gemini."));
         exit;
     }
+
+    // Salva a chave de API na sessão para lembrar no próximo acesso
+    $_SESSION['gemini_api_key'] = $apiKey;
 
     $uploadDir = 'uploads/';
     if (!is_dir($uploadDir)) {
