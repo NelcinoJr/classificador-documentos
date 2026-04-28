@@ -26,14 +26,13 @@ session_start();
         table, th, td { border: 1px solid #ddd; }
         th, td { padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
-        .badge-local { background-color: #2ecc71; color: white; padding: 3px 6px; border-radius: 12px; font-size: 11px; }
         .badge-ai { background-color: #9b59b6; color: white; padding: 3px 6px; border-radius: 12px; font-size: 11px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Classificador de Documentos em Lote</h1>
-        <p>Faça upload de múltiplos PDFs. O sistema tentará classificar localmente primeiro para economizar créditos. Caso não consiga, enviará para o Gemini.</p>
+        <p>Faça upload de múltiplos PDFs. Todos os documentos passarão pela IA para extração detalhada de dados (Competência, Valores, Datas).</p>
         
         <form action="upload.php" method="POST" enctype="multipart/form-data" id="uploadForm">
             <div>
@@ -43,14 +42,13 @@ session_start();
             </div>
             
             <div>
-                <label for="gemini_model">Escolha o Modelo do Gemini (Fallback):</label>
+                <label for="gemini_model">Escolha o Modelo do Gemini:</label>
                 <select name="gemini_model" id="gemini_model">
                     <option value="gemini-1.5-flash">Gemini 1.5 Flash (Rápido e Barato)</option>
                     <option value="gemini-1.5-pro">Gemini 1.5 Pro (Raciocínio Complexo)</option>
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                 </select>
-                <small style="color: #666; display: block; margin-top: 5px;">A IA só será chamada se a pré-classificação local falhar.</small>
             </div>
 
             <div>
@@ -83,8 +81,8 @@ session_start();
                                 <th>Arquivo</th>
                                 <th>Tipo</th>
                                 <th>Subtipo</th>
-                                <th>Origem</th>
                                 <th>Vencimento / Valor</th>
+                                <th>Custo Unit. (R$)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -94,16 +92,10 @@ session_start();
                                     <td><?php echo htmlspecialchars($res['dados']['tipo_solicitacao'] ?? 'N/A'); ?></td>
                                     <td><?php echo htmlspecialchars($res['dados']['subtipo'] ?? 'N/A'); ?></td>
                                     <td>
-                                        <?php if (($res['processado_por'] ?? '') == 'Local'): ?>
-                                            <span class="badge-local">Local (Regex)</span>
-                                        <?php else: ?>
-                                            <span class="badge-ai">IA (Gemini)</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
                                         <?php echo htmlspecialchars($res['dados']['vencimento'] ?? '-'); ?> <br>
                                         R$ <?php echo htmlspecialchars($res['dados']['valor'] ?? '-'); ?>
                                     </td>
+                                    <td>R$ <?php echo number_format($res['custo_brl'] ?? 0, 4, ',', '.'); ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -114,15 +106,10 @@ session_start();
                 
                 <?php if ($costs && $costs['total_cost_usd'] > 0): ?>
                     <div class="costs">
-                        <h3>Estimativa de Custos (Arquivos enviados para IA)</h3>
-                        <p><strong>Arquivos analisados por IA:</strong> <?php echo $costs['ai_calls']; ?> de <?php echo count($results); ?></p>
+                        <h3>Estimativa de Custos do Lote Completo</h3>
+                        <p><strong>Arquivos analisados por IA:</strong> <?php echo count($results); ?></p>
                         <p><strong>Tokens Totais (In+Out):</strong> <?php echo number_format($costs['total_tokens'], 0, ',', '.'); ?></p>
                         <p><strong>Custo Total do Lote:</strong> USD $<?php echo number_format($costs['total_cost_usd'], 6, '.', ','); ?> (Aprox. R$ <?php echo number_format($costs['total_cost_brl'], 4, ',', '.'); ?>)</p>
-                    </div>
-                <?php else: ?>
-                     <div class="costs" style="border-left-color: #2ecc71;">
-                        <h3>Custo Zero! 🎉</h3>
-                        <p>Todos os arquivos deste lote foram identificados com sucesso pelo classificador local. Nenhuma chamada à API do Gemini foi necessária.</p>
                     </div>
                 <?php endif; ?>
             </div>

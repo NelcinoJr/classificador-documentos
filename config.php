@@ -23,11 +23,21 @@ try {
         vencimento TEXT,
         valor TEXT,
         cnpj TEXT,
-        processado_por TEXT, -- 'Regex Local' ou 'Gemini IA'
+        processado_por TEXT,
+        custo_usd REAL,
+        custo_brl REAL,
         data_processamento DATETIME DEFAULT CURRENT_TIMESTAMP
     )";
     
     $pdo->exec($query);
+
+    // Tentativa de adicionar colunas caso o banco já exista com a estrutura antiga
+    try {
+        $pdo->exec("ALTER TABLE documentos ADD COLUMN custo_usd REAL");
+        $pdo->exec("ALTER TABLE documentos ADD COLUMN custo_brl REAL");
+    } catch (PDOException $e) {
+        // Colunas já existem, apenas ignora
+    }
 
 } catch (PDOException $e) {
     die("Erro ao conectar com o banco de dados: " . $e->getMessage());

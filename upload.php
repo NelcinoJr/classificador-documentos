@@ -56,61 +56,6 @@ Texto do documento:
     return json_decode($response, true);
 }
 
-// Função de pré-classificação local para economizar custos
-function classificadorLocal($text) {
-    $textUpper = strtoupper($text);
-    $result = [
-        'tipo_solicitacao' => null,
-        'subtipo' => null,
-        'competencia' => null,
-        'vencimento' => null,
-        'valor' => null,
-        'cnpj' => null
-    ];
-
-    // Regex comuns
-    // CNPJ
-    if (preg_match('/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/', $text, $matches)) {
-        $result['cnpj'] = $matches[0];
-    }
-    
-    // Valor (formato brasileiro: 1.234,56 ou 123,45)
-    if (preg_match('/(?:VALOR TOTAL|VALOR A PAGAR|VALOR COBRADO).*?(?:R\$)?\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i', $text, $matches)) {
-        $result['valor'] = str_replace(['.', ','], ['', '.'], $matches[1]);
-    }
-
-    // Identificação de DAS
-    if (strpos($textUpper, 'DOCUMENTO DE ARRECADAÇÃO DO SIMPLES NACIONAL') !== false || strpos($textUpper, 'DAS') !== false) {
-        $result['tipo_solicitacao'] = 'Tributo';
-        $result['subtipo'] = 'DAS';
-        return $result; // Retorna rápido se achar
-    }
-
-    // Identificação de INSS / GPS
-    if (strpos($textUpper, 'GUIA DA PREVIDÊNCIA SOCIAL') !== false || strpos($textUpper, 'INSS') !== false) {
-        $result['tipo_solicitacao'] = 'Tributo';
-        $result['subtipo'] = 'INSS';
-        return $result;
-    }
-
-    // Identificação de Nota Fiscal
-    if (strpos($textUpper, 'NOTA FISCAL') !== false || strpos($textUpper, 'DANFE') !== false) {
-        $result['tipo_solicitacao'] = 'Outros';
-        $result['subtipo'] = 'Nota_Fiscal';
-        return $result;
-    }
-    
-    // Identificação de Extrato Bancário / OFX
-    if (strpos($textUpper, 'EXTRATO') !== false || strpos($textUpper, 'OFX') !== false || strpos($textUpper, 'SALDO ANTERIOR') !== false) {
-        $result['tipo_solicitacao'] = 'Outros';
-        $result['subtipo'] = 'Extrato_Bancario';
-        return $result;
-    }
-
-    // Se não encontrou regras suficientes, retorna null para o subtipo, obrigando a chamar a IA
-    return null; 
-}
-
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['pdf_files'])) {
     
@@ -132,8 +77,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['pdf_files'])) {
     
     $batchResults = [];
     $totalAiCalls = 0;
-    $totalInputTokens = 0;
-    $totalOutputTokens = 0;
+    $totalInputTokensLote = 0;
+    $totalOutputTokensLote = 0;
+    $totalCostUsdLote = 0;
 
     $parser = new \Smalot\PdfParser\Parser();
 
@@ -157,40 +103,46 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['pdf_files'])) {
                     throw new Exception("PDF sem texto (imagem escaneada).");
                 }
 
-                // 2. Tentar Classificação Local Primeiro (Economia)
-                $localResult = classificadorLocal($text);
-                
-                if ($localResult && $localResult['subtipo'] !== null) {
-                    $jsonResultArray = $localResult;
-                    $processadoPor = 'Local';
-                } else {
-                    // 3. Fallback: Se não identificou localmente, chama o Gemini
-                    $apiResponse = callGeminiAPI($text, $model, $apiKey);
+                // 2. Sempre chama o Gemini para extração completa
+                $apiResponse = callGeminiAPI($text, $model, $apiKey);
 
-                    if (!isset($apiResponse['candidates'][0]['content']['parts'][0]['text'])) {
-                        throw new Exception("Resposta inesperada da API.");
-                    }
-
-                    $jsonString = $apiResponse['candidates'][0]['content']['parts'][0]['text'];
-                    $jsonResultArray = json_decode($jsonString, true) ?: [];
-                    $processadoPor = 'IA';
-                    $totalAiCalls++;
-
-                    // Contabilizar Tokens
-                    $totalInputTokens += $apiResponse['usageMetadata']['promptTokenCount'] ?? str_word_count($text);
-                    $totalOutputTokens += $apiResponse['usageMetadata']['candidatesTokenCount'] ?? 150;
+                if (!isset($apiResponse['candidates'][0]['content']['parts'][0]['text'])) {
+                    throw new Exception("Resposta inesperada da API.");
                 }
+
+                $jsonString = $apiResponse['candidates'][0]['content']['parts'][0]['text'];
+                $jsonResultArray = json_decode($jsonString, true) ?: [];
+                $processadoPor = 'IA';
+                $totalAiCalls++;
+
+                // Contabilizar Tokens do Arquivo
+                $inputTokensDoc = $apiResponse['usageMetadata']['promptTokenCount'] ?? str_word_count($text);
+                $outputTokensDoc = $apiResponse['usageMetadata']['candidatesTokenCount'] ?? 150;
+                
+                $totalInputTokensLote += $inputTokensDoc;
+                $totalOutputTokensLote += $outputTokensDoc;
+
+                // Calcular custo do arquivo
+                $priceConfig = $pricing[$model] ?? $pricing['gemini-1.5-flash'];
+                $costInputUsdDoc = ($inputTokensDoc / 1000000) * $priceConfig['input'];
+                $costOutputUsdDoc = ($outputTokensDoc / 1000000) * $priceConfig['output'];
+                $docCostUsd = $costInputUsdDoc + $costOutputUsdDoc;
+                $docCostBrl = $docCostUsd * $dolar_hoje;
+                
+                $totalCostUsdLote += $docCostUsd;
 
                 // Salvar na Sessão para exibir na tela
                 $batchResults[] = [
                     'arquivo' => $originalName,
                     'processado_por' => $processadoPor,
-                    'dados' => $jsonResultArray
+                    'dados' => $jsonResultArray,
+                    'custo_usd' => $docCostUsd,
+                    'custo_brl' => $docCostBrl
                 ];
 
-                // 4. Salvar no Banco de Dados (SQLite)
+                // 3. Salvar no Banco de Dados (SQLite)
                 global $pdo;
-                $stmt = $pdo->prepare("INSERT INTO documentos (nome_arquivo, tipo_solicitacao, subtipo, competencia, vencimento, valor, cnpj, processado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO documentos (nome_arquivo, tipo_solicitacao, subtipo, competencia, vencimento, valor, cnpj, processado_por, custo_usd, custo_brl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([
                     $originalName,
                     $jsonResultArray['tipo_solicitacao'] ?? null,
@@ -199,14 +151,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['pdf_files'])) {
                     $jsonResultArray['vencimento'] ?? null,
                     $jsonResultArray['valor'] ?? null,
                     $jsonResultArray['cnpj'] ?? null,
-                    $processadoPor
+                    $processadoPor,
+                    $docCostUsd,
+                    $docCostBrl
                 ]);
 
             } catch (Exception $e) {
                 $batchResults[] = [
                     'arquivo' => $originalName,
                     'processado_por' => 'Erro',
-                    'dados' => ['subtipo' => 'Falha: ' . $e->getMessage()]
+                    'dados' => ['subtipo' => 'Falha: ' . $e->getMessage()],
+                    'custo_usd' => 0,
+                    'custo_brl' => 0
                 ];
             } finally {
                 // Limpeza
@@ -217,19 +173,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['pdf_files'])) {
         }
     }
 
-    // Calcular Custos Totais do Lote
-    $priceConfig = $pricing[$model] ?? $pricing['gemini-1.5-flash'];
-    $costInputUsd = ($totalInputTokens / 1000000) * $priceConfig['input'];
-    $costOutputUsd = ($totalOutputTokens / 1000000) * $priceConfig['output'];
-    $totalCostUsd = $costInputUsd + $costOutputUsd;
-    $totalCostBrl = $totalCostUsd * $dolar_hoje;
+    // Custos Totais do Lote
+    $totalCostBrlLote = $totalCostUsdLote * $dolar_hoje;
 
     $_SESSION['batch_results'] = $batchResults;
     $_SESSION['batch_costs'] = [
         'ai_calls' => $totalAiCalls,
-        'total_tokens' => $totalInputTokens + $totalOutputTokens,
-        'total_cost_usd' => $totalCostUsd,
-        'total_cost_brl' => $totalCostBrl
+        'total_tokens' => $totalInputTokensLote + $totalOutputTokensLote,
+        'total_cost_usd' => $totalCostUsdLote,
+        'total_cost_brl' => $totalCostBrlLote
     ];
 
     header("Location: index.php?success=1");
