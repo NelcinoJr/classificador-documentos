@@ -41,9 +41,8 @@ session_start();
                     <option value="gemini-1.5-pro">Gemini 1.5 Pro (Raciocínio Complexo)</option>
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                     <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                    <option value="gemini-3.0-ultra">Gemini 3.0 Ultra</option>
-                    <option value="gemini-3.1">Gemini 3.1</option>
                 </select>
+                <small style="color: #666; display: block; margin-top: 5px;">Nota: Versões 3.0+ ainda não estão liberadas publicamente na API e retornarão erro se utilizadas.</small>
             </div>
 
             <div>
