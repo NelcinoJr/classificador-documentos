@@ -1,0 +1,9 @@
+{
+    "name": "contaagil/classificador-documentos",
+    "description": "Mini-projeto em PHP para classificar documentos usando AWS Textract e Gemini 2.5",
+    "require": {
+        "aws/aws-sdk-php": "^3.300",
+        "guzzlehttp/guzzle": "^7.8",
+        "smalot/pdfparser": "^2.1"
+    }
+}
