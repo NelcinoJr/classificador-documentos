@@ -28,7 +28,7 @@ $pricing = [
 $dolar_hoje = 5.00; // Taxa de conversão para BRL
 
 function callGeminiAPI($text, $model, $apiKey) {
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}-latest:generateContent?key={$apiKey}";
     
     $prompt = "Você é um classificador inteligente de documentos contábeis.
 Abaixo está o texto extraído de um arquivo PDF.
